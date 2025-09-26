@@ -23,22 +23,27 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from matplotlib.gridspec import GridSpec
 plt.rcParams['font.family'] = 'Segoe UI Emoji' 
-# -------------------- Load config --------------------
-CONFIG_PATH = "config.json"
-if not os.path.exists(CONFIG_PATH):
-    raise SystemExit("Missing config.json - create one (see README).")
+import os
+from dotenv import load_dotenv
 
-with open(CONFIG_PATH, "r") as f:
-    cfg = json.load(f)
+# Load from .env
+load_dotenv()
 
-TOKEN = cfg.get("Token_2")
-PREFIX = cfg.get("prefix", "!")
-MT5_CFG = cfg.get("mt5", {})
-ALERT_CHANNEL_ID = int(cfg.get("alert_channel_id", 0)) if cfg.get("alert_channel_id") else None
-WATCH_LIST = cfg.get("watch_list", ["EURUSDm", "BTCUSDm"])
-POLL_INTERVAL_MIN = int(cfg.get("poll_interval_min", 1))
-CHART_UPDATE_SECONDS = float(cfg.get("chart_update_seconds", 10.0))
-ADMIN_ROLE_IDS = [int(r) for r in cfg.get("admin_role_ids", [])]
+# -------------------- Config --------------------
+TOKEN = os.getenv("TOKEN_2")
+PREFIX = os.getenv("PREFIX", "!")
+
+MT5_LOGIN = int(os.getenv("MT5_LOGIN", 0))
+MT5_SERVER = os.getenv("MT5_SERVER", "")
+MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
+
+ALERT_CHANNEL_ID = int(os.getenv("ALERT_CHANNEL_ID", 0)) if os.getenv("ALERT_CHANNEL_ID") else None
+WATCH_LIST = os.getenv("WATCH_LIST", "EURUSDm,BTCUSDm").split(",")
+POLL_INTERVAL_MIN = int(os.getenv("POLL_INTERVAL_MIN", 1))
+CHART_UPDATE_SECONDS = float(os.getenv("CHART_UPDATE_SECONDS", 10.0))
+
+ADMIN_ROLE_IDS = [int(r) for r in os.getenv("ADMIN_ROLE_IDS", "").split(",") if r.strip().isdigit()]
+
 
 # -------------------- Discord bot setup --------------------
 intents = discord.Intents.default()
@@ -46,11 +51,6 @@ intents.message_content = True
 intents.guilds = True
 intents.messages = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
-
-# -------------------- MT5 init --------------------
-MT5_LOGIN = int(MT5_CFG.get("login", 0))
-MT5_SERVER = MT5_CFG.get("server", "")
-MT5_PASSWORD = MT5_CFG.get("password", "")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("forex_bot")
@@ -3526,3 +3526,4 @@ async def main():
         await bot.start(TOKEN)
 
 asyncio.run(main())
+
