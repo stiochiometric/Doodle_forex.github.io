@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Run Python with Pyodide</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+</head>
+<body>
+  <h1>Python via Pyodide</h1>
+  <pre id="output"></pre>
+
+  <script type="text/javascript">
+    async function main() {
+      // Load Pyodide runtime
+      const pyodide = await loadPyodide();
+
+      // Load your Python file from repo (must be in same folder as index.html)
+      let response = await fetch("AI_bot5.py");
+      let pythonCode = await response.text();
+
+      // Run it
+      try {
+        let result = await pyodide.runPythonAsync(pythonCode);
+        document.getElementById("output").textContent = result ?? "✅ Python script executed.";
+      } catch (err) {
+        document.getElementById("output").textContent = "❌ Error:\n" + err;
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>
