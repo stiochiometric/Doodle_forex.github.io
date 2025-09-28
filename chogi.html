@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Elemental Chogi Prototype</title>
+<style>
+  :root{ --w:#f7f7f7; --b:#2b2b2b; --accent:#2b9cff; }
+  body{ font-family:system-ui,Segoe UI,Roboto,Arial; background:#111; color:var(--w); display:flex; gap:20px; padding:18px; }
+  #root{ display:flex; gap:20px; }
+  .board{ display:grid; grid-template-columns: repeat(10,48px); grid-template-rows: repeat(10,48px); gap:2px; background:#222;padding:8px;border-radius:8px;}
+  .cell{ width:48px;height:48px; display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer; border-radius:6px; user-select:none; }
+  .cell.dark{ background:#4b4b4b; }
+  .cell.light{ background:#6b6b6b; }
+  .cell.selected{ outline:3px solid #ffea66; box-shadow:0 0 8px #ffea66; z-index:2; }
+  .cell.move{ outline:3px solid #2b9cff; box-shadow:0 0 8px #2b9cff; }
+  .cell.capture{ outline:3px solid #ff6666; box-shadow:0 0 8px #ff6666; }
+  .panel{ width:360px; }
+  h2{ margin:0 0 10px 0; color:var(--accent); }
+  .info{ background:#161616;padding:12px;border-radius:8px; margin-bottom:12px; }
+  .stacks{ display:flex; gap:12px; margin-top:8px; }
+  .stack-box{ background:#222;padding:8px;border-radius:8px; width:150px; text-align:center; }
+  .controls{ display:flex; gap:8px; margin-top:10px; }
+  button{ padding:8px 10px; border-radius:6px; border:0; background:var(--accent); color:#002; cursor:pointer; }
+  button.secondary{ background:#444; color:var(--w); }
+  .modal{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); }
+  .card{ background:#151515; padding:18px; border-radius:10px; width:360px; border:1px solid #333; }
+  .elem-choice{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .elem{ background:#222;padding:8px 10px;border-radius:8px; cursor:pointer; border:1px solid #333; }
+  .piece-label{ font-weight:700; font-size:12px; padding:3px 6px; border-radius:6px; background:rgba(255,255,255,0.04) }
+  .log{ margin-top:8px; max-height:180px; overflow:auto; background:#0f0f0f;padding:8px;border-radius:8px; }
+  small.hint{ color:#9a9a9a; display:block; margin-top:8px; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div>
+      <div class="board" id="board"></div>
+      <div style="display:flex;gap:12px;margin-top:10px">
+        <div class="info">
+          <div><strong>Turn:</strong> <span id="turnLabel">White</span></div>
+          <small class="hint">Click piece → highlighted moves → click destination.</small>
+        </div>
+        <div class="info">
+          <div><strong>Selected:</strong> <span id="selInfo">None</span></div>
+          <div class="controls">
+            <button id="promoteGeneralBtn" class="secondary">Promote → General</button>
+            <button id="promoteQueenBtn" class="secondary">Promote → Queen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Game Panel</h2>
+      <div class="info">
+        <div><strong>White Stacks:</strong> <span id="whiteStacks">0</span></div>
+        <div><strong>Black Stacks:</strong> <span id="blackStacks">0</span></div>
+        <div style="margin-top:8px;"><strong>Rules:</strong>
+          <ul>
+            <li>10×10 board, 30 pawns per player (3 rows each).</li>
+            <li>Pawns promote to Guards on reaching backline (choose element).</li>
+            <li>To promote Guard→General or General→Queen requires one stack token (a sacrificed pawn).</li>
+            <li>King promotes only when in check and captures the checking piece.</li>
+            <li>Victory by <em>checkmate</em> only.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="info">
+        <strong>Controls</strong>
+        <div class="stacks">
+          <div class="stack-box">
+            <div class="piece-label">White</div>
+            <div style="font-size:22px" id="whiteStats">P:30</div>
+          </div>
+          <div class="stack-box">
+            <div class="piece-label">Black</div>
+            <div style="font-size:22px" id="blackStats">P:30</div>
+          </div>
+        </div>
+
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Promotion Modal -->
+  <div id="promoModal" class="modal" style="display:none">
+    <div class="card">
+      <div><strong>Choose Element for Promotion</strong></div>
+      <div class="elem-choice">
+        <div class="elem" data-elem="fire">🔥 Fire</div>
+        <div class="elem" data-elem="stone">🪨 Stone</div>
+        <div class="elem" data-elem="wind">💨 Wind</div>
+        <div class="elem" data-elem="water">💧 Water</div>
+        <div class="elem" data-elem="lightning">⚡ Lightning</div>
+        <div class="elem" data-elem="pawn">↩ Reset Pawn</div>
+      </div>
+      <div style="text-align:right;margin-top:12px">
+        <button id="promoCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/*
+Elemental Chogi Prototype
+Core objects:
+- board: 10x10
+- pieces: {id,side:'white'|'black',role:'pawn'|'guard'|'general'|'queen'|'king', element:null|'fire'... , rank:1.., stacks: number under piece (visual) }
+- players: stacks (sacrificed captured pawns stored)
+*/
+
+// ---------- game state ----------
+const SIZE = 10;
+let board = []; // SIZE x SIZE, null or piece
+let selected = null;
+let turn = 'white';
+let whiteStacks = 0, blackStacks = 0;
+let whitePieces = 30, blackPieces = 30;
+const boardEl = document.getElementById('board');
+const selInfo = document.getElementById('selInfo');
+const turnLabel = document.getElementById('turnLabel');
+const logEl = document.getElementById('log');
+const promoModal = document.getElementById('promoModal');
+let pendingPromotion = null; // {piece,r,c}
+
+// piece id counter
+let pid = 1;
+
+// helper to log
+function log(s){
+  const d = document.createElement('div'); d.textContent = s; logEl.prepend(d);
+}
+
+// create piece
+function makePiece(side, role='pawn', element=null, rank=1){
+  return { id: pid++, side, role, element, rank };
+}
+
+// init board: 3 rows white at bottom (ranks 7..9 for white) and 3 rows black at top (0..2)
+function initBoard(){
+  board = Array.from({length: SIZE}, ()=>Array(SIZE).fill(null));
+  // Black top 3 rows (0..2)
+  for(let r=0;r<3;r++){
+    for(let c=0;c<SIZE;c++){
+      board[r][c] = makePiece('black','pawn',null,1);
+    }
+  }
+  // White bottom 3 rows (7..9)
+  for(let r=SIZE-3;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      board[r][c] = makePiece('white','pawn',null,1);
+    }
+  }
+  // Place kings centrally behind pawns: put white king at (9,4), black king at (0,5)
+  board[9][4] = makePiece('white','king',null,1);
+  board[0][5] = makePiece('black','king',null,1);
+  // remove one pawn under kings to keep counts? For simplicity, replace those squares: deduct their pawn counts
+  if(board[9][4]) whitePieces -= 1;
+  if(board[0][5]) blackPieces -= 1;
+}
+
+// render
+function render(){
+  boardEl.innerHTML = '';
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      const cell = document.createElement('div');
+      cell.className = 'cell ' + (((r+c)%2===0)?'light':'dark');
+      cell.dataset.r=r; cell.dataset.c=c;
+      const piece = board[r][c];
+      if(piece){
+        const label = formatPieceLabel(piece);
+        cell.innerHTML = label;
+      }
+      // highlight selection
+      if(selected && selected.r==r && selected.c==c) cell.classList.add('selected');
+      cell.onclick = ()=>onCellClick(r,c);
+      boardEl.appendChild(cell);
+    }
+  }
+  document.getElementById('whiteStacks').textContent = whiteStacks;
+  document.getElementById('blackStacks').textContent = blackStacks;
+  document.getElementById('whiteStats').textContent = `P:${whitePieces}`;
+  document.getElementById('blackStats').textContent = `P:${blackPieces}`;
+  turnLabel.textContent = (turn[0].toUpperCase()+turn.slice(1));
+  selInfo.textContent = selected? formatPieceDesc(board[selected.r][selected.c]) : 'None';
+}
+
+function formatPieceLabel(p){
+  const s = p.side[0].toUpperCase();
+  let roleShort = p.role==='pawn'?'P': (p.role==='guard'?'G': (p.role==='general'?'Gen': p.role==='queen'?'Q':'K'));
+  let elem = p.element?(' ' + elementEmoji(p.element)) : '';
+  let rank = (p.rank && p.rank>1)?(' •' + p.rank): '';
+  return `<div style="text-align:center"><div class="piece-label">${s}${roleShort}${elem}${rank}</div></div>`;
+}
+function formatPieceDesc(p){
+  if(!p) return '—';
+  return `${p.side} ${p.role}${p.element?(' ('+p.element+')'):''} rank:${p.rank}`;
+}
+function elementEmoji(e){
+  switch(e){
+    case 'fire': return '🔥';
+    case 'stone': return '🪨';
+    case 'wind': return '💨';
+    case 'water': return '💧';
+    case 'lightning': return '⚡';
+    default: return '';
+  }
+}
+
+// movement generation core
+// returns {moves: [{r,c,type:'move'|'capture'}], checking:boolean} for a given piece at r,c
+function legalMovesFor(r,c){
+  const piece = board[r][c];
+  if(!piece) return {moves:[]};
+  const moves = [];
+  const side = piece.side;
+  const enemy = side==='white'?'black':'white';
+
+  // helpers to add
+  function addIfEmpty(rr,cc){
+    if(!inBounds(rr,cc)) return;
+    if(board[rr][cc]===null) moves.push({r:rr,c:cc,type:'move'});
+    else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+  }
+  function addCaptureOnly(rr,cc){
+    if(!inBounds(rr,cc)) return;
+    if(board[rr][cc] && board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+  }
+
+  // directions
+  const orth = [[1,0],[-1,0],[0,1],[0,-1]];
+  const diag = [[1,1],[1,-1],[-1,1],[-1,-1]];
+
+  // pawn base movement: forward 1; capture diagonal forward
+  if(piece.role==='pawn'){
+    const dir = side==='white' ? -1 : 1;
+    // forward
+    const fr = r+dir, fc = c;
+    if(inBounds(fr,fc) && board[fr][fc]===null) moves.push({r:fr,c:fc,type:'move'});
+    // captures
+    for(const d of [[dir,-1],[dir,1]]){
+      const rr=r+d[0], cc=c+d[1];
+      if(inBounds(rr,cc) && board[rr][cc] && board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+    }
+    return {moves};
+  }
+
+  // king movement (base) — also scales with rank (domain)
+  if(piece.role==='king'){
+    // The king's 'domain' expansion is interpreted as increased movement radius per rank
+    const domain = piece.rank || 1; // rank 1 -> 1-step king; rank 2 -> 2 steps in any dir (rook/king-like)
+    for(let dr=-domain; dr<=domain; dr++){
+      for(let dc=-domain; dc<=domain; dc++){
+        if(dr===0 && dc===0) continue;
+        const rr=r+dr, cc=c+dc;
+        if(!inBounds(rr,cc)) continue;
+        if(board[rr][cc]===null) moves.push({r:rr,c:cc,type:'move'});
+        else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+      }
+    }
+    return {moves};
+  }
+
+  // guard/generals/queen movement
+  // define elemental movement contributors as functions that push to moves (respecting blocking rules)
+  const addFire = (maxSteps)=>{ // straight orthogonal lines
+    for(const d of orth){
+      for(let s=1;s<=maxSteps;s++){
+        const rr=r+d[0]*s, cc=c+d[1]*s;
+        if(!inBounds(rr,cc)) break;
+        if(board[rr][cc]===null) moves.push({r:rr,c:cc,type:'move'});
+        else{
+          if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+          break;
+        }
+      }
+    }
+  };
+  const addStone = (radius)=>{ // adjacency domain
+    for(let dr=-radius; dr<=radius; dr++){
+      for(let dc=-radius; dc<=radius; dc++){
+        if(dr===0 && dc===0) continue;
+        const rr=r+dr, cc=c+dc;
+        if(!inBounds(rr,cc)) continue;
+        if(board[rr][cc]===null) moves.push({r:rr,c:cc,type:'move'});
+        else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+      }
+    }
+  };
+  const addWind = (maxSteps)=>{ // diagonals
+    for(const d of diag){
+      for(let s=1;s<=maxSteps;s++){
+        const rr=r+d[0]*s, cc=c+d[1]*s;
+        if(!inBounds(rr,cc)) break;
+        if(board[rr][cc]===null) moves.push({r:rr,c:cc,type:'move'});
+        else{
+          if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+          break;
+        }
+      }
+    }
+  };
+  const addWater = (hopLen)=>{ // straight hop ignoring exactly one blocking piece allowed
+    for(const d of orth){
+      // attempt straight path up to hopLen
+      let blockedCount=0;
+      for(let s=1;s<=hopLen;s++){
+        const rr=r+d[0]*s, cc=c+d[1]*s;
+        if(!inBounds(rr,cc)) break;
+        const cell = board[rr][cc];
+        if(cell===null){
+          moves.push({r:rr,c:cc,type:'move'});
+        } else {
+          if(cell.side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+          blockedCount++;
+          if(blockedCount>1) break; // cannot pass more than 1
+          // else continue to allow ignoring exactly one obstacle: allow the next square (only once)
+          // implement: if there is exactly 1 blockage, allow next empty/capture cell (but not beyond)
+          const rr2 = rr + d[0], cc2 = cc + d[1];
+          if(inBounds(rr2,cc2)){
+            if(board[rr2][cc2]===null) moves.push({r:rr2,c:cc2,type:'move'});
+            else if(board[rr2][cc2].side===enemy) moves.push({r:rr2,c:cc2,type:'capture'});
+          }
+          break;
+        }
+      }
+    }
+  };
+  const addLightning = (variants)=>{ // knight-like hops; variants for extended generals
+    const knightOffsets = variants;
+    for(const off of knightOffsets){
+      const rr=r+off[0], cc=c+off[1];
+      if(!inBounds(rr,cc)) continue;
+      if(board[rr][cc]===null) moves.push({r:rr,c:cc,type:'move'});
+      else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+    }
+  };
+
+  // choose movement depending on piece.role & element
+  // roles: guard, general, queen
+  const elementMovementFor = (role, element, rank)=>{
+    // returns array of contributor functions to call with their parameters
+    // We'll map role->power multipliers
+    // Guard: base as per user
+    // General: extended
+    // Queen: fusion union of two elements; if element is composite like "fire+water" it's queen combination
+    const contributors = [];
+    if(role==='guard'){
+      switch(element){
+        case 'fire': contributors.push({fn:addFire, arg:4}); break;
+        case 'stone': contributors.push({fn:addStone, arg:1}); break;
+        case 'wind': contributors.push({fn:addWind, arg:4}); break;
+        case 'water': contributors.push({fn:addWater, arg:2}); break;
+        case 'lightning': contributors.push({fn:addLightning, arg:[[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]]}); break;
+      }
+    } else if(role==='general'){
+      // extended abilities
+      switch(element){
+        case 'fire': contributors.push({fn:addFire, arg:8}); break; // extended
+        case 'stone': contributors.push({fn:addStone, arg:2}); break;
+        case 'wind': contributors.push({fn:addWind, arg:8}); break;
+        case 'water': contributors.push({fn:addWater, arg:3}); break;
+        case 'lightning': contributors.push({fn:addLightning, arg:[[3,1],[1,3],[-1,3],[-3,1],[-3,-1],[-1,-3],[1,-3],[3,-1]]}); break;
+      }
+    } else if(role==='queen'){
+      // element may be composite like "fire+water"
+      const parts = element.split('+');
+      for(const p of parts){
+        contributors.push(...elementMovementFor('general',p,3)); // queen uses general-level contribution per element, then union
+      }
+    }
+    return contributors;
+  };
+
+  if(piece.role==='guard' || piece.role==='general' || piece.role==='queen'){
+    const contribs = elementMovementFor(piece.role, piece.element, piece.rank);
+    for(const c of contribs){
+      c.fn(c.arg);
+    }
+  }
+  // deduplicate moves by coords
+  const uniq = {};
+  const final = [];
+  for(const m of moves){
+    const key = m.r+','+m.c;
+    if(!uniq[key]){ uniq[key]=true; final.push(m); }
+  }
+  return {moves: final};
+}
+
+// ---------- helpers ----------
+function inBounds(r,c){ return r>=0 && r<SIZE && c>=0 && c<SIZE; }
+
+// on cell click
+function onCellClick(r,c){
+  const p = board[r][c];
+  // if a piece is selected and clicked a legal move, move
+  if(selected){
+    const legal = legalMovesFor(selected.r, selected.c).moves;
+    const hit = legal.find(m => m.r===r && m.c===c);
+    if(hit){
+      doMove(selected.r, selected.c, r, c, hit.type);
+      selected = null;
+      render();
+      return;
+    }
+    // else deselect if click on same selected
+    if(selected.r===r && selected.c===c){ selected=null; render(); return; }
+  }
+  // if clicking own piece
+  if(p && p.side===turn){
+    selected = {r,c};
+    render();
+    // highlight legal moves visually
+    highlightMoves(r,c);
+    return;
+  }
+  // else clear
+  selected = null;
+  render();
+}
+
+// highlight moves by adding classes
+function highlightMoves(r,c){
+  const allCells = boardEl.children;
+  // clear
+  for(const el of allCells) el.classList.remove('move','capture');
+  const legal = legalMovesFor(r,c).moves;
+  for(const m of legal){
+    const idx = m.r*SIZE + m.c;
+    const el = allCells[idx];
+    el.classList.add(m.type==='capture'?'capture':'move');
+  }
+}
+
+// move execution including capture and stacking logic
+function doMove(sr,sc,tr,tc,type){
+  const moving = board[sr][sc];
+  const target = board[tr][tc];
+  if(target){
+    // capture: add captured piece to capturer's stacks (only pawn sacrifices count as stack ? design earlier: captured pawns used as stacks)
+    // Instruction earlier: "the 10 pieces will be there for promoting... when a piece is promoted, it will be stacked with the sacrificed piece"
+    // We interpret every captured pawn contributes to stack tokens for the capturing player
+    if(target.role==='pawn'){
+      if(moving.side==='white') whiteStacks++;
+      else blackStacks++;
+    } else {
+      // also captured non-pawns could become stacks? We'll count all captures as providing stack tokens if desired.
+      // For balance, we'll count only pawns as stacks.
+    }
+    // reduce piece counts
+    if(target.side==='white') whitePieces--;
+    else blackPieces--;
+    log(`${moving.side} ${moving.role}${moving.element?('('+moving.element+')'):''} captured ${target.side} ${target.role}`);
+  }
+  // move piece
+  board[tr][tc] = moving;
+  board[sr][sc] = null;
+
+  // Pawn reaches opponent backline -> promotion choice popup
+  if(moving.role==='pawn'){
+    if((moving.side==='white' && tr===0) || (moving.side==='black' && tr===SIZE-1)){
+      // show promotion modal
+      pendingPromotion = {piece:moving, r:tr, c:tc};
+      showPromotionModal();
+    }
+  }
+
+  // handle king promotion on capture while in check: if moving piece is king and it captured a piece that was delivering check, increase king rank
+  if(moving.role==='king' && type==='capture'){
+    // simple: if the move captured an enemy piece AND king was previously in check then rank++.
+    // To determine previous check, see if king at sr,sc before move was in check.
+    // Implement simple: if moving king captured and it was in check from target before move, increment rank
+    const wasInCheck = isSquareAttacked(sr,sc, moving.side==='white'?'black':'white');
+    if(wasInCheck){
+      moving.rank = Math.min((moving.rank||1)+1, 5);
+      log(`${moving.side} King promoted by surviving check to rank ${moving.rank}`);
+    }
+  }
+
+  // after each move, check if opponent in checkmate
+  const opp = turn==='white'?'black':'white';
+  setTimeout(()=>{
+    if(isCheckmate(opp)) {
+      alert(`${turn.toUpperCase()} wins by checkmate!`);
+      log(`${turn.toUpperCase()} wins by checkmate!`);
+      // freeze board
+      boardEl.querySelectorAll('.cell').forEach(el=>el.onclick=null);
+    } else {
+      // toggle turn
+      turn = opp;
+      selected=null;
+      render();
+    }
+  }, 50);
+}
+
+// simple function: is square attacked by side?
+function isSquareAttacked(r,c, attackerSide){
+  // iterate all pieces of attackerSide
+  for(let rr=0; rr<SIZE; rr++){
+    for(let cc=0; cc<SIZE; cc++){
+      const p = board[rr][cc];
+      if(!p || p.side!==attackerSide) continue;
+      const moves = legalMovesFor(rr,cc).moves;
+      if(moves.find(m => m.r===r && m.c===c && m.type==='capture')) return true;
+    }
+  }
+  return false;
+}
+
+// is king in checkmate for side
+function isCheckmate(side){
+  // find king
+  let kr=-1,kc=-1;
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    const p=board[r][c];
+    if(p && p.side===side && p.role==='king'){ kr=r; kc=c; }
+  }
+  if(kr===-1) return true; // no king -> dead
+  // is king in check?
+  const enemy = side==='white'?'black':'white';
+  if(!isSquareAttacked(kr,kc,enemy)) return false;
+  // if king has any legal move to escape (or any friendly move that removes check) we are not checkmated
+  // brute force: for all friendly pieces, generate legal moves, simulate and see if king remains attacked
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      const p = board[r][c];
+      if(!p || p.side!==side) continue;
+      const moves = legalMovesFor(r,c).moves;
+      for(const m of moves){
+        // simulate
+        const from = {r,c};
+        const to = {r:m.r,c:m.c};
+        const captured = board[to.r][to.c];
+        const moving = board[from.r][from.c];
+        board[to.r][to.c] = moving;
+        board[from.r][from.c] = null;
+        // find king position (maybe moved)
+        let knr = kr, knc = kc;
+        if(moving.role==='king'){ knr = to.r; knc = to.c; }
+        const attacked = isSquareAttacked(knr,knc, enemy);
+        // undo
+        board[from.r][from.c] = moving;
+        board[to.r][to.c] = captured;
+        if(!attacked) return false; // found a saving move
+      }
+    }
+  }
+  return true;
+}
+
+// promotion modal
+function showPromotionModal(){
+  promoModal.style.display = 'flex';
+}
+function hidePromotionModal(){ promoModal.style.display='none'; pendingPromotion=null; }
+
+// modal choices
+document.querySelectorAll('.elem').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    const e = el.dataset.elem;
+    if(!pendingPromotion) return;
+    const p = pendingPromotion;
+    const piece = board[p.r][p.c];
+    if(!piece) { hidePromotionModal(); return; }
+    if(e==='pawn'){
+      // reset pawn -> keep role pawn, element null
+      piece.role='pawn'; piece.element=null; piece.rank=1;
+      log(`${piece.side} pawn reset to Pawn at promotion rank`);
+    } else {
+      piece.role='guard'; piece.element=e; piece.rank=1;
+      log(`${piece.side} pawn promoted to ${e} Guard at ${p.r},${p.c}`);
+    }
+    hidePromotionModal();
+    render();
+  });
+});
+document.getElementById('promoCancel').onclick = ()=>{ hidePromotionModal(); };
+
+// promotion buttons (promote selected to general or to queen)
+document.getElementById('promoteGeneralBtn').onclick = ()=>{
+  if(!selected) return alert('Select a piece to promote to General');
+  const piece = board[selected.r][selected.c];
+  if(!piece) return;
+  if(piece.side!==turn) return alert('Can only promote your own pieces');
+  if(piece.role==='pawn') return alert('You must first promote pawn to Guard by reaching backline');
+  // require stack token
+  const stacks = piece.side==='white'? whiteStacks : blackStacks;
+  if(stacks<=0) return alert('No stacks available to promote. You need captured pawns to sacrifice.');
+  // now upgrade
+  piece.role='general';
+  piece.rank = (piece.rank||1)+1;
+  // consume one stack
+  if(piece.side==='white') whiteStacks--; else blackStacks--;
+  log(`${piece.side} promoted a ${piece.element} Guard to General.`);
+  render();
+};
+document.getElementById('promoteQueenBtn').onclick = ()=>{
+  if(!selected) return alert('Select a piece to promote to Queen');
+  const piece = board[selected.r][selected.c];
+  if(!piece) return;
+  if(piece.side!==turn) return alert('Can only promote your own pieces');
+  if(piece.role!=='general') return alert('Only Generals can promote to Queen (requires being a General first).');
+  const stacks = piece.side==='white'? whiteStacks : blackStacks;
+  if(stacks<=0) return alert('No stacks available to promote.');
+  // upgrade to queen: element becomes element1+element2? For our prototype, queen element will be just same element for now
+  // But we allow player to choose second element to fuse: show modal to choose fusion partner (we'll keep it simple: allow any)
+  pendingPromotion = {piece, r:selected.r, c:selected.c, promoteTo:'queen'};
+  showQueenFusionModal(piece.side);
+};
+
+// Queen fusion modal (reuse promo modal but ask for second element)
+function showQueenFusionModal(side){
+  promoModal.style.display='flex';
+  // change title and options text
+  promoModal.querySelector('.card > div').textContent = 'Choose Element to Fuse (makes Queen)';
+  // use the same element buttons; clicking will finalize queen fusion
+}
+// override element clicks for queen fusion when pendingPromotion.promoteTo==='queen'
+document.querySelectorAll('.elem').forEach(el=>{
+  el.addEventListener('click', (ev)=>{
+    const e = el.dataset.elem;
+    if(!pendingPromotion) return;
+    if(pendingPromotion.promoteTo!=='queen') return;
+    if(e==='pawn') { alert('Choose an elemental fusion for Queen'); return; }
+    const piece = pendingPromotion.piece;
+    // create fused element name: existing element + '+' + chosen
+    const base = piece.element;
+    const other = e;
+    if(!base){ alert('Piece has no base element to fuse'); hidePromotionModal(); pendingPromotion=null; return; }
+    const fused = `${base}+${other}`;
+    piece.role='queen';
+    piece.element=fused;
+    piece.rank = (piece.rank||2)+1;
+    // consume stack
+    if(piece.side==='white') whiteStacks--; else blackStacks--;
+    log(`${piece.side} promoted to ${piece.element} (Queen)`);
+    hidePromotionModal();
+    render();
+  });
+});
+
+// utility: find king
+function findKing(side){
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    const p = board[r][c];
+    if(p && p.side===side && p.role==='king') return {r,c,p};
+  }
+  return null;
+}
+
+// check detection and highlight for current player
+// We'll add an indicator in log when king is in check
+function postTurnChecks(){
+  const enemy = turn==='white'?'black':'white';
+  const king = findKing(turn);
+  if(king){
+    if(isSquareAttacked(king.r,king.c, enemy)){
+      log(`${turn} King is in CHECK`);
+    }
+  }
+}
+
+// initialize and render
+initBoard();
+render();
+log('Game initialized. White to move.');
+
+// optional: highlight legal moves on hover (not necessary)
+// end of script
+</script>
+</body>
+</html>
