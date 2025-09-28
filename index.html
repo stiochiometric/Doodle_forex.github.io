@@ -13,9 +13,11 @@
     async function main() {
       // Load Pyodide runtime
       const pyodide = await loadPyodide();
+      await micropip.install("matplotlib") in Python
 
       // Load your Python file from repo (must be in same folder as index.html)
       let response = await fetch("AI_bot5.py");
+      
       let pythonCode = await response.text();
 
       // Run it
