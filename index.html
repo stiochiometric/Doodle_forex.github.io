@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Elemental Chogi — v2 Prototype</title>
+<style>
+  :root{
+    --bg:#efe6da; --panel:#f7f3ef; --wood:#6b492f; --accent:#284b63;
+    --fire:#d9534f; --water:#3b9ad9; --wind:#7fc97f; --stone:#b8a27a; --light:#f7d154;
+    --hex-size:46px;
+  }
+  body{ margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background:var(--bg); color:#222; padding:18px; display:flex; gap:18px; }
+  .container{ display:flex; gap:18px; align-items:flex-start; width:100%; }
+  .board-wrap{ background:linear-gradient(180deg,#f0e8de,#e7dfd3); padding:12px; border-radius:12px; box-shadow:0 8px 20px rgba(0,0,0,0.15); border:6px solid var(--wood);}
+  .board{ display:grid; grid-template-columns: repeat(10, var(--hex-size)); grid-auto-rows: calc(var(--hex-size) * 0.86); gap:6px; background:transparent; padding:10px; }
+  .cell{ width:var(--hex-size); height:calc(var(--hex-size)*0.86); display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; }
+  .cell .hex-svg{ width:100%; height:100%; pointer-events:none; }
+  .cell.dark{ filter:brightness(.95); }
+  .cell.selected::after{ content:''; position:absolute; inset:4px; border-radius:8px; box-shadow:0 0 12px rgba(40,75,99,0.45); border:2px dashed rgba(40,75,99,0.25); }
+  .overlay-move{ position:absolute; inset:6px; border-radius:8px; box-shadow:0 0 10px rgba(59,154,217,0.5); pointer-events:none; }
+  .overlay-capture{ position:absolute; inset:6px; border-radius:8px; box-shadow:0 0 10px rgba(217,89,89,0.55); pointer-events:none; }
+  .piece-label{ position:absolute; bottom:4px; left:6px; padding:2px 6px; background:rgba(255,255,255,0.9); color:#111; font-weight:700; border-radius:6px; font-size:11px; pointer-events:none;}
+  .piece-rank{ position:absolute; top:4px; right:6px; padding:2px 6px; background:#111;color:#fff;border-radius:6px;font-size:11px; font-weight:700; pointer-events:none;}
+  .panel{ width:360px; background:var(--panel); padding:14px; border-radius:12px; box-shadow:0 8px 20px rgba(0,0,0,0.08); }
+  h2{ margin:0 0 10px 0; color:var(--accent); }
+  .info{ margin-bottom:12px; padding:10px; background:white; border-radius:8px; border:1px solid rgba(0,0,0,0.04); }
+  .stacks{ display:flex; gap:12px; margin-top:8px; }
+  .stack-box{ padding:8px; border-radius:8px; background:linear-gradient(180deg,#fff,#f2f2f2); border:1px solid rgba(0,0,0,0.04); width:150px; text-align:center; }
+  .tray{ margin-top:10px; display:flex; gap:8px; align-items:center; justify-content:center; padding:8px; background:#fff; border-radius:8px; border:1px dashed rgba(0,0,0,0.03); min-height:60px;}
+  .tray .token{ width:26px; height:26px; border-radius:6px; background:#eee; display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#222; }
+  .controls{ display:flex; gap:8px; margin-top:8px; }
+  button{ padding:8px 10px; border-radius:8px; border:0; background:var(--accent); color:white; cursor:pointer; font-weight:600; }
+  button.secondary{ background:#ddd; color:#222; }
+  .log{ margin-top:8px; max-height:220px; overflow:auto; background:#fff; padding:8px; border-radius:8px; font-size:13px; border:1px solid rgba(0,0,0,0.04); }
+  .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.45); z-index:9999; }
+  .card{ background:#fff; padding:16px; border-radius:10px; width:420px; box-shadow:0 10px 30px rgba(0,0,0,0.25); }
+  .elem-choice{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .elem{ padding:8px 12px; border-radius:8px; border:1px solid rgba(0,0,0,0.06); cursor:pointer; }
+  .elem.fire{ background:linear-gradient(180deg,#ffd8d4,#ffb3ab); color:#8b1b15; }
+  .elem.water{ background:linear-gradient(180deg,#d9f0ff,#a1dbff); color:#0b4f70; }
+  .elem.wind{ background:linear-gradient(180deg,#e7ffe9,#bff0bf); color:#0a4f17; }
+  .elem.stone{ background:linear-gradient(180deg,#f6efe6,#e6d9c5); color:#6b4b2a; }
+  .elem.lightning{ background:linear-gradient(180deg,#fff9d1,#ffef9a); color:#7a5a00; }
+
+  /* small responsive */
+  @media (max-width:1100px){
+    .panel{ width:320px; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="board-wrap">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+        <div style="font-weight:800;color:var(--wood);font-size:18px">Elemental Chogi — v2</div>
+        <div style="margin-left:auto"><small style="color:#666">Theme: Wood & Parchment • Hex Tokens</small></div>
+      </div>
+      <div id="board" class="board"></div>
+      <div style="display:flex;gap:12px;margin-top:10px;align-items:center">
+        <div style="font-weight:700">Turn: <span id="turnLabel">White</span></div>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          <button id="resetBtn" class="secondary">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Game Panel</h2>
+      <div class="info">
+        <div style="display:flex;justify-content:space-between">
+          <div><strong>White Stacks</strong><div id="whiteStacks" style="font-size:18px">0</div></div>
+          <div><strong>Black Stacks</strong><div id="blackStacks" style="font-size:18px">0</div></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="flex:1">
+            <div style="font-weight:700">White Komadai</div>
+            <div id="whiteTray" class="tray"></div>
+          </div>
+          <div style="flex:1">
+            <div style="font-weight:700">Black Komadai</div>
+            <div id="blackTray" class="tray"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="info">
+        <div><strong>Selected:</strong> <span id="selInfo">None</span></div>
+        <div class="controls">
+          <button id="promoteGeneralBtn" class="secondary">Promote → General</button>
+          <button id="promoteQueenBtn" class="secondary">Promote → Queen</button>
+        </div>
+        <small style="display:block;margin-top:8px;color:#555">Promotions require stack tokens. Guards get reset to your 3rd row after promoting (Generals also). Queens do not reset.</small>
+      </div>
+
+      <div class="info">
+        <strong>Rules Summary</strong>
+        <ul style="margin:6px 0 0 18px">
+          <li>10×10 board, 30 pawns per side (3 rows).</li>
+          <li>Pawns promote to Guards on reaching backline (choose element).</li>
+          <li>Guard→General and General→Queen require spending 1 stack token (from captured pawns shown in Komadai).</li>
+          <li>After a promotion (Guard or General), the promoted piece resets back to your 3rd row (Queens exempt).</li>
+          <li>Water is blocked (2-step straight but blocked if an intervening piece exists). Fire is long straight range.</li>
+          <li>King auto-promotes 1 rank at the **start** of its side's turn if it is currently in check (max rank 5). Victory only by checkmate.</li>
+        </ul>
+      </div>
+
+      <div class="info">
+        <strong>Game Log</strong>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Promotion Modal -->
+  <div id="promoModal" class="modal">
+    <div class="card">
+      <div style="font-weight:800" id="promoTitle">Choose Element for Promotion</div>
+      <div class="elem-choice" id="promoChoices">
+        <div class="elem fire" data-elem="fire">🔥 Fire</div>
+        <div class="elem water" data-elem="water">💧 Water</div>
+        <div class="elem wind" data-elem="wind">💨 Wind</div>
+        <div class="elem stone" data-elem="stone">🪨 Stone</div>
+        <div class="elem lightning" data-elem="lightning">⚡ Lightning</div>
+        <div class="elem" data-elem="pawn">↩ Reset Pawn</div>
+      </div>
+      <div style="text-align:right;margin-top:12px"><button id="promoCancel">Cancel</button></div>
+    </div>
+  </div>
+
+  <!-- Water capture choice modal -->
+  <div id="waterChoiceModal" class="modal">
+    <div class="card">
+      <div style="font-weight:800">Water Hop — capture passed piece?</div>
+      <div style="margin-top:10px">You moved over an enemy piece. Do you want to capture it (gives stack token) or pass through without capturing?</div>
+      <div style="text-align:right;margin-top:12px"><button id="waterYes">Capture</button><button id="waterNo" class="secondary">Don't Capture</button></div>
+    </div>
+  </div>
+
+<script>
+/* Core updated prototype implementing user fixes */
+/* Board & rules summary:
+   - SIZE=10, 30 pawns per player initially (rows 0-2 black, 7-9 white).
+   - Guards, Generals, Queens, King ranks.
+   - Stacks visible, Komadai (trays) visible.
+   - After promotion (Guard->General) reset to 3rd row (white row 7, black row 2). Queens exempt.
+   - Fire = long straight range; Water = 2-step straight blocked by intervening piece (but if hop over enemy and land empty, player chooses capture or pass).
+   - Lightning general retains knight moves plus extended L reach.
+   - King auto-promotes at start of side's turn if king currently in check.
+*/
+
+const SIZE = 10;
+let board = [];
+let turn = 'white';
+let selected = null;
+let whiteStacks = 0, blackStacks = 0;
+let whitePieces = 30, blackPieces = 30;
+const boardEl = document.getElementById('board');
+const turnLabel = document.getElementById('turnLabel');
+const selInfo = document.getElementById('selInfo');
+const logEl = document.getElementById('log');
+const whiteTray = document.getElementById('whiteTray');
+const blackTray = document.getElementById('blackTray');
+const promoModal = document.getElementById('promoModal');
+const promoChoices = document.getElementById('promoChoices');
+const promoTitle = document.getElementById('promoTitle');
+const waterChoiceModal = document.getElementById('waterChoiceModal');
+let pendingPromotion = null; // {piece, r,c, type:'guard'|'queen'|'general'}
+let pendingWaterOp = null; // {from,to,over}
+
+let pid = 1;
+function makePiece(side, role='pawn', element=null, rank=1){
+  return { id: pid++, side, role, element, rank };
+}
+
+function initBoard(){
+  board = Array.from({length:SIZE}, ()=>Array(SIZE).fill(null));
+  // black top 3 rows 0,1,2
+  for(let r=0;r<3;r++) for(let c=0;c<SIZE;c++) board[r][c] = makePiece('black','pawn',null,1);
+  // white bottom 3 rows 7,8,9
+  for(let r=SIZE-3;r<SIZE;r++) for(let c=0;c<SIZE;c++) board[r][c] = makePiece('white','pawn',null,1);
+  // kings placed behind pawns: white at (9,4), black at (0,5) — replace those pawns positions
+  board[9][4] = makePiece('white','king',null,1);
+  board[0][5] = makePiece('black','king',null,1);
+  // adjust counts: we removed one pawn each to place king in same cell — keep counts at 30 but track pieces removal on capture
+  whitePieces = 30; blackPieces = 30;
+  // clear stacks
+  whiteStacks = 0; blackStacks = 0;
+  // clear trays
+  render();
+  log('Game initialized.');
+}
+
+function log(txt){
+  const d = document.createElement('div'); d.textContent = `${(new Date()).toLocaleTimeString()} — ${txt}`; logEl.prepend(d);
+}
+
+function inBounds(r,c){ return r>=0 && r<SIZE && c>=0 && c<SIZE; }
+
+// render board
+function render(){
+  boardEl.innerHTML = '';
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      const cell = document.createElement('div');
+      cell.className = 'cell ' + (((r+c)%2===0)?'dark':'');
+      cell.dataset.r=r; cell.dataset.c=c;
+      const piece = board[r][c];
+      if(piece){
+        const svg = createHexSVG(piece);
+        cell.appendChild(svg);
+        const lbl = document.createElement('div');
+        lbl.className='piece-label';
+        lbl.innerText = `${piece.side[0].toUpperCase()} ${piece.role.charAt(0).toUpperCase()}`;
+        cell.appendChild(lbl);
+        const rk = document.createElement('div'); rk.className='piece-rank'; rk.innerText = piece.rank>1?('R'+piece.rank):'';
+        cell.appendChild(rk);
+      }
+      cell.onclick = ()=>onCellClick(r,c);
+      if(selected && selected.r==r && selected.c==c) cell.classList.add('selected');
+      boardEl.appendChild(cell);
+    }
+  }
+  turnLabel.innerText = turn[0].toUpperCase()+turn.slice(1);
+  document.getElementById('whiteStacks').innerText = whiteStacks;
+  document.getElementById('blackStacks').innerText = blackStacks;
+  updateTrays();
+  selInfo.innerText = selected? `${board[selected.r][selected.c].side} ${board[selected.r][selected.c].role} ${board[selected.r][selected.c].element||''} R${board[selected.r][selected.c].rank}` : 'None';
+}
+
+// create hex SVG token
+function createHexSVG(piece){
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns,'svg'); svg.setAttribute('viewBox','0 0 100 86'); svg.classList.add('hex-svg');
+  // base white face and colored front overlay
+  const points = "50,2 95,26 95,60 50,84 5,60 5,26";
+  const base = document.createElementNS(ns,'polygon'); base.setAttribute('points',points); base.setAttribute('fill','#ffffff'); base.setAttribute('stroke','#d1c7b7'); base.setAttribute('stroke-width','2');
+  svg.appendChild(base);
+  // colored front wedge to indicate element (a semicircle or gradient)
+  const elemColor = elementColor(piece.element);
+  if(elemColor){
+    const overlay = document.createElementNS(ns,'polygon'); overlay.setAttribute('points',points); overlay.setAttribute('fill',elemColor); overlay.setAttribute('opacity','0.12');
+    svg.appendChild(overlay);
+    // small emblem circle in center
+    const circle = document.createElementNS(ns,'circle'); circle.setAttribute('cx','50'); circle.setAttribute('cy','44'); circle.setAttribute('r','16'); circle.setAttribute('fill',elemColor); circle.setAttribute('opacity','0.85');
+    svg.appendChild(circle);
+    // element icon
+    const txt = document.createElementNS(ns,'text'); txt.setAttribute('x','50'); txt.setAttribute('y','49'); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size','22'); txt.setAttribute('fill','#111'); txt.setAttribute('font-weight','700');
+    txt.textContent = elementEmoji(piece.element);
+    svg.appendChild(txt);
+  } else {
+    // pawn plain small dot
+    const dot = document.createElementNS(ns,'circle'); dot.setAttribute('cx','50'); dot.setAttribute('cy','44'); dot.setAttribute('r','8'); dot.setAttribute('fill','#eee');
+    svg.appendChild(dot);
+  }
+  // show stack marker small at top-left if rank >1
+  return svg;
+}
+
+function elementColor(e){
+  switch(e){
+    case 'fire': return 'var(--fire)';
+    case 'water': return 'var(--water)';
+    case 'wind': return 'var(--wind)';
+    case 'stone': return 'var(--stone)';
+    case 'lightning': return 'var(--light)';
+    default: return null;
+  }
+}
+function elementEmoji(e){
+  switch(e){
+    case 'fire': return '🔥';
+    case 'water': return '💧';
+    case 'wind': return '💨';
+    case 'stone': return '🪨';
+    case 'lightning': return '⚡';
+    default: return '';
+  }
+}
+
+// find nearest free slot in 3rd row for side (reset after promotion)
+function findResetSlot(side, preferredCol){
+  const row = (side==='white') ? (SIZE-3) : 2; // white row 7, black row 2
+  // try same column
+  if(inBounds(row, preferredCol) && !board[row][preferredCol]) return {r:row,c:preferredCol};
+  // search nearest empty col
+  for(let d=1; d<SIZE; d++){
+    if(inBounds(row, preferredCol-d) && !board[row][preferredCol-d]) return {r:row,c:preferredCol-d};
+    if(inBounds(row, preferredCol+d) && !board[row][preferredCol+d]) return {r:row,c:preferredCol+d};
+  }
+  // if none, find any empty in that row
+  for(let c=0;c<SIZE;c++) if(!board[row][c]) return {r:row,c};
+  return null;
+}
+
+// movement generation updated with swapped roles and knight retention
+function legalMovesFor(r,c){
+  const piece = board[r][c]; if(!piece) return {moves:[]};
+  const moves = []; const side = piece.side; const enemy = side==='white'?'black':'white';
+  const orth = [[1,0],[-1,0],[0,1],[0,-1]]; const diag = [[1,1],[1,-1],[-1,1],[-1,-1]];
+  function addIfEmpty(rr,cc){ if(!inBounds(rr,cc)) return; if(!board[rr][cc]) moves.push({r:rr,c:cc,type:'move'}); else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'}); }
+  function addCaptureOnly(rr,cc){ if(!inBounds(rr,cc)) return; if(board[rr][cc] && board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'}); }
+
+  // pawn
+  if(piece.role==='pawn'){
+    const dir = side==='white'? -1 : 1;
+    const fr = r+dir;
+    if(inBounds(fr,c) && !board[fr][c]) moves.push({r:fr,c:typeCoord(c),type:'move'});
+    for(const d of [[dir,-1],[dir,1]]){
+      const rr=r+d[0], cc=c+d[1];
+      if(inBounds(rr,cc) && board[rr][cc] && board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+    }
+    return {moves};
+  }
+
+  // king movement scaled by rank (domain)
+  if(piece.role==='king'){
+    const domain = piece.rank || 1;
+    for(let dr=-domain; dr<=domain; dr++){
+      for(let dc=-domain; dc<=domain; dc++){
+        if(dr===0 && dc===0) continue;
+        const rr=r+dr, cc=c+dc;
+        if(!inBounds(rr,cc)) continue;
+        if(!board[rr][cc]) moves.push({r:rr,c:cc,type:'move'}); else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+      }
+    }
+    return {moves};
+  }
+
+  // elemental movement definitions:
+  // FIRE: long straight lines (orthogonal). Guards 4, Generals extended e.g., 8.
+  // WATER: 2-step straight hop BUT blocked by intervening piece. If there's an enemy in the intermediate and target empty, add a special move (passOver) prompting capture choice.
+  // WIND: diagonal moves (guards 4, generals extended)
+  // STONE: adjacency (king-like radius)
+  // LIGHTNING: knight hops (guard) and when general also retain base knight + extended L offsets (longer L)
+  const addFire = (steps) => {
+    for(const d of orth){
+      for(let s=1;s<=steps;s++){
+        const rr=r+d[0]*s, cc=c+d[1]*s;
+        if(!inBounds(rr,cc)) break;
+        if(!board[rr][cc]) moves.push({r:rr,c:cc,type:'move'});
+        else { if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'}); break; }
+      }
+    }
+  };
+  const addStone = (radius)=> {
+    for(let dr=-radius;dr<=radius;dr++){
+      for(let dc=-radius;dc<=radius;dc++){
+        if(dr===0&&dc===0) continue;
+        const rr=r+dr, cc=c+dc;
+        if(!inBounds(rr,cc)) continue;
+        if(!board[rr][cc]) moves.push({r:rr,c:cc,type:'move'});
+        else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+      }
+    }
+  };
+  const addWind = (steps)=>{
+    for(const d of diag){
+      for(let s=1;s<=steps;s++){
+        const rr=r+d[0]*s, cc=c+d[1]*s;
+        if(!inBounds(rr,cc)) break;
+        if(!board[rr][cc]) moves.push({r:rr,c:cc,type:'move'});
+        else { if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'}); break; }
+      }
+    }
+  };
+  const addWater = (hopLen)=>{
+    for(const d of orth){
+      // examine first square
+      const midR = r + d[0], midC = c + d[1];
+      const landR = r + d[0]*hopLen, landC = c + d[1]*hopLen;
+      if(!inBounds(landR,landC)) continue;
+      // If intervening square has a piece:
+      if(board[midR][midC]){
+        // if intervening piece is enemy and landing empty, allow special passOver move (option to capture or not)
+        if(board[midR][midC].side===enemy && !board[landR][landC]){
+          moves.push({r:landR,c:landC,type:'passOver', over:{r:midR,c:midC}});
+        }
+        // otherwise blocked (can't move)
+      } else {
+        // path clear: if landing empty add move; if landing enemy capture allowed
+        if(!board[landR][landC]) moves.push({r:landR,c:landC,type:'move'});
+        else if(board[landR][landC].side===enemy) moves.push({r:landR,c:landC,type:'capture'});
+      }
+    }
+  };
+  const addLightning = (variants)=>{
+    for(const off of variants){
+      const rr=r+off[0], cc=c+off[1];
+      if(!inBounds(rr,cc)) continue;
+      if(!board[rr][cc]) moves.push({r:rr,c:cc,type:'move'}); else if(board[rr][cc].side===enemy) moves.push({r:rr,c:cc,type:'capture'});
+    }
+  };
+
+  // mapping depending on role/element
+  function contributionFor(role, element){
+    const contribs = [];
+    if(role==='guard'){
+      switch(element){
+        case 'fire': contribs.push({fn:addFire,arg:4}); break;
+        case 'stone': contribs.push({fn:addStone,arg:1}); break;
+        case 'wind': contribs.push({fn:addWind,arg:4}); break;
+        case 'water': contribs.push({fn:addWater,arg:2}); break;
+        case 'lightning': contribs.push({fn:addLightning,arg:[[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]]}); break;
+      }
+    } else if(role==='general'){
+      switch(element){
+        case 'fire': contribs.push({fn:addFire,arg:8}); break;
+        case 'stone': contribs.push({fn:addStone,arg:2}); break;
+        case 'wind': contribs.push({fn:addWind,arg:8}); break;
+        case 'water': contribs.push({fn:addWater,arg:2}); break; // water general retains blocked hop but maybe longer? keep same to avoid overpower
+        case 'lightning':
+          // retain knight base + extended L offsets
+          contribs.push({fn:addLightning,arg:[[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]]});
+          contribs.push({fn:addLightning,arg:[[3,1],[1,3],[-1,3],[-3,1],[-3,-1],[-1,-3],[1,-3],[3,-1]]});
+          break;
+      }
+    } else if(role==='queen'){
+      // queen: element may be composite like "fire+wind" -> union of general-level movement for each element
+      const parts = element.split('+');
+      for(const p of parts){ contribs.push(...contributionFor('general',p)); }
+    }
+    return contribs;
+  }
+
+  // compute contributions
+  if(piece.role==='guard' || piece.role==='general' || piece.role==='queen'){
+    const contribs = contributionFor(piece.role, piece.element || '');
+    for(const c of contribs) c.fn(c.arg);
+  }
+
+  // deduplicate
+  const uniq = {};
+  const out = [];
+  for(const m of moves){
+    const key = m.r+','+m.c;
+    if(!uniq[key]){ uniq[key]=true; out.push(m); }
+  }
+  return {moves: out};
+}
+
+// cell click
+function onCellClick(r,c){
+  const clicked = board[r][c];
+  if(selected){
+    // attempt move
+    const legal = legalMovesFor(selected.r, selected.c).moves;
+    const hit = legal.find(m=>m.r===r && m.c===c);
+    if(hit){
+      // handle passOver water special
+      if(hit.type==='passOver'){
+        // perform move but prompt choice
+        pendingWaterOp = {from:{r:selected.r,c:selected.c}, to:{r:r,c:c}, over:hit.over};
+        showWaterChoiceModal();
+        return;
+      } else {
+        performMove(selected.r, selected.c, r, c, hit);
+        selected=null; render(); return;
+      }
+    }
+    // if clicked own piece select new
+    if(clicked && clicked.side===turn){ selected={r,c}; render(); highlightMoves(r,c); return; }
+    // else deselect
+    selected=null; render(); return;
+  }
+  // no selection: select own piece
+  if(clicked && clicked.side===turn){ selected={r,c}; render(); highlightMoves(r,c); return; }
+}
+
+// highlight moves
+function highlightMoves(r,c){
+  // clear overlays
+  const cells = boardEl.children;
+  for(const el of cells){ el.querySelectorAll('.overlay-move,.overlay-capture').forEach(x=>x.remove()); }
+  const legal = legalMovesFor(r,c).moves;
+  for(const m of legal){
+    const idx = m.r*SIZE + m.c;
+    const el = boardEl.children[idx];
+    const overlay = document.createElement('div');
+    overlay.className = (m.type==='capture'?'overlay-capture':'overlay-move');
+    el.appendChild(overlay);
+  }
+}
+
+// perform move (including captures, stacks)
+function performMove(sr,sc,tr,tc,move){
+  const moving = board[sr][sc]; if(!moving) return;
+  const target = board[tr][tc];
+  // if capture
+  if(target){
+    // if captured was pawn -> add to capturer's stacks and to tray
+    if(target.role==='pawn'){ if(moving.side==='white') whiteStacks++; else blackStacks++; addCapturedToTray(target); }
+    // decrement piece count
+    if(target.side==='white') whitePieces--; else blackPieces--;
+    log(`${moving.side} ${moving.role}${moving.element?('('+moving.element+')'):''} captured ${target.side} ${target.role}`);
+  }
+  // move piece
+  board[tr][tc] = moving; board[sr][sc] = null;
+
+  // pawn reaches backline -> promotion to Guard choice
+  if(moving.role==='pawn'){
+    if((moving.side==='white' && tr===0) || (moving.side==='black' && tr===SIZE-1)){
+      pendingPromotion = {piece:moving, r:tr, c:tc, type:'guard'};
+      showPromoModal(moving.side);
+      return; // wait for choice
+    }
+  }
+
+  // after move, post-move rules: if promotion to general/queen button used they will handle reset
+  // check for checkmate after turn
+  setTimeout(()=>{ postMoveToggle(); }, 50);
+}
+
+// add captured display
+function addCapturedToTray(piece){
+  const token = document.createElement('div'); token.className='token'; token.textContent='P';
+  if(piece.side==='white') whiteTray.appendChild(token); else blackTray.appendChild(token);
+}
+
+// water choice modal handlers
+function showWaterChoiceModal(){ waterChoiceModal.style.display='flex'; }
+function hideWaterChoiceModal(){ waterChoiceModal.style.display='none'; }
+document.getElementById('waterYes').onclick = ()=>{
+  // capture the passed-over piece and perform move, give stack
+  const op = pendingWaterOp; if(!op) return;
+  const moving = board[op.from.r][op.from.c];
+  const over = board[op.over.r][op.over.c];
+  // capture over
+  if(over && over.side !== moving.side){
+    if(moving.side==='white'){ whiteStacks++; addCapturedToTray(over); } else { blackStacks++; addCapturedToTray(over); }
+    if(over.side==='white') whitePieces--; else blackPieces--;
+    board[op.over.r][op.over.c] = null;
+    log(`${moving.side} captured passed-over ${over.side} pawn as part of Water hop`);
+  }
+  // move
+  board[op.to.r][op.to.c] = moving; board[op.from.r][op.from.c] = null;
+  pendingWaterOp = null;
+  hideWaterChoiceModal();
+  setTimeout(()=>postMoveToggle(),50);
+};
+document.getElementById('waterNo').onclick = ()=>{
+  const op = pendingWaterOp; if(!op) return;
+  const moving = board[op.from.r][op.from.c];
+  // just move without capturing
+  board[op.to.r][op.to.c] = moving; board[op.from.r][op.from.c] = null;
+  pendingWaterOp = null;
+  hideWaterChoiceModal();
+  setTimeout(()=>postMoveToggle(),50);
+};
+
+// post-move: toggle turn and check for checkmate; also check for king auto-promotion at start of next player's turn
+function postMoveToggle(){
+  // after a move, check if opponent is checkmated
+  const opp = turn==='white'?'black':'white';
+  if(isCheckmate(opp)){
+    alert(`${turn.toUpperCase()} wins by checkmate!`);
+    log(`${turn.toUpperCase()} wins by checkmate!`);
+    // freeze interactions
+    boardEl.querySelectorAll('.cell').forEach(c=>c.onclick=null);
+    return;
+  }
+  // toggle
+  turn = opp;
+  // at start of side's turn, if their king is in check, auto-promote king by +1 rank (max 5)
+  autoPromoteKingIfChecked(turn);
+  selected = null; render();
+}
+
+// auto promote king if checked at start of side's turn
+function autoPromoteKingIfChecked(side){
+  const k = findKing(side);
+  if(!k) return;
+  const enemy = side==='white'?'black':'white';
+  if(isSquareAttacked(k.r,k.c,enemy)){
+    k.p.rank = Math.min((k.p.rank||1)+1,5);
+    log(`${side} King auto-promoted to rank ${k.p.rank} due to being in check at start of turn`);
+  }
+}
+
+// helper find king
+function findKing(side){
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){ const p=board[r][c]; if(p && p.side===side && p.role==='king') return {r,c,p}; }
+  return null;
+}
+
+// is square attacked by side (used for check detection)
+function isSquareAttacked(r,c,attackerSide){
+  for(let rr=0; rr<SIZE; rr++){
+    for(let cc=0; cc<SIZE; cc++){
+      const p = board[rr][cc];
+      if(!p || p.side!==attackerSide) continue;
+      const moves = legalMovesFor(rr,cc).moves;
+      if(moves.find(m=>m.r===r && m.c===c && (m.type==='capture' || m.type==='passOver'))) return true;
+    }
+  }
+  return false;
+}
+
+// is checkmate
+function isCheckmate(side){
+  const k = findKing(side); if(!k) return true;
+  const enemy = side==='white'?'black':'white';
+  if(!isSquareAttacked(k.r,k.c,enemy)) return false;
+  // brute force all moves to see if any escape
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    const p = board[r][c];
+    if(!p || p.side!==side) continue;
+    const moves = legalMovesFor(r,c).moves;
+    for(const m of moves){
+      // simulate move
+      const from = {r,c}, to={r:m.r,c:m.c};
+      const captured = board[to.r][to.c];
+      const moving = board[from.r][from.c];
+      // special handling for passOver: capture over if chosen — treat as capture if over is enemy
+      let overBackup = null;
+      if(m.type==='passOver'){ overBackup = board[m.over.r][m.over.c]; board[m.over.r][m.over.c] = null; }
+      board[to.r][to.c] = moving; board[from.r][from.c] = null;
+      let knr=k.r, knc=k.c;
+      if(moving.role==='king'){ knr = to.r; knc = to.c; }
+      const attacked = isSquareAttacked(knr,knc, enemy);
+      // undo
+      board[from.r][from.c] = moving; board[to.r][to.c] = captured;
+      if(m.type==='passOver'){ board[m.over.r][m.over.c] = overBackup; }
+      if(!attacked) return false;
+    }
+  }
+  return true;
+}
+
+// Promotion UI flows
+function showPromoModal(side, title){
+  promoModal.style.display='flex';
+  promoTitle.innerText = title || 'Choose Element for Promotion';
+}
+function hidePromoModal(){ promoModal.style.display='none'; pendingPromotion=null; }
+
+promoChoices.querySelectorAll('.elem').forEach(el=>{
+  el.addEventListener('click', (e)=>{
+    const elem = el.dataset.elem;
+    if(!pendingPromotion) return;
+    const pp = pendingPromotion;
+    const piece = pp.piece;
+    if(pp.type==='guard'){
+      if(elem==='pawn'){ piece.role='pawn'; piece.element=null; piece.rank=1; log(`${piece.side} chose Pawn reset at promotion`); hidePromoModal(); render(); return; }
+      piece.role='guard'; piece.element=elem; piece.rank=1;
+      log(`${piece.side} Pawn -> Guard (${elem})`);
+      // after guard promotion, reset piece back to 3rd row
+      const slot = findResetSlot(piece.side, pp.c);
+      if(slot){
+        // move piece to slot
+        board[slot.r][slot.c] = piece;
+        board[pp.r][pp.c] = null;
+        log(`${piece.side} promoted piece reset to 3rd row at ${slot.r},${slot.c}`);
+      }
+      hidePromoModal(); render(); return;
+    }
+    if(pp.type==='queen'){
+      if(elem==='pawn'){ alert('Cannot choose Pawn for Queen fusion'); return; }
+      const baseElem = piece.element;
+      if(!baseElem){ alert('Piece has no base element to fuse'); hidePromoModal(); return; }
+      const fused = `${baseElem}+${elem}`;
+      piece.role='queen'; piece.element=fused; piece.rank = (piece.rank||2)+1;
+      log(`${piece.side} promoted to Queen (${fused})`);
+      // Queens do NOT reset
+      hidePromoModal(); render(); return;
+    }
+  });
+});
+document.getElementById('promoCancel').onclick = ()=>{ hidePromoModal(); };
+
+// promote to general button
+document.getElementById('promoteGeneralBtn').onclick = ()=>{
+  if(!selected) return alert('Select a piece to promote');
+  const p = board[selected.r][selected.c];
+  if(!p) return;
+  if(p.side!==turn) return alert('Can only promote your piece');
+  if(p.role!=='guard') return alert('Only Guards can be promoted to Generals (Guard first).');
+  const stacks = p.side==='white'? whiteStacks: blackStacks;
+  if(stacks<=0) return alert('No stacks available.');
+  // consume
+  if(p.side==='white'){ whiteStacks--; } else { blackStacks--; }
+  p.role='general'; p.rank = (p.rank||1)+1;
+  log(`${p.side} Guard->General (${p.element})`);
+  // after general promotion, reset to 3rd row
+  const slot = findResetSlot(p.side, selected.c);
+  if(slot){
+    board[slot.r][slot.c] = p;
+    board[selected.r][selected.c] = null;
+    log(`${p.side} General reset to 3rd row at ${slot.r},${slot.c}`);
+    selected = null;
+  }
+  render();
+};
+
+// promote to queen button (fusion)
+document.getElementById('promoteQueenBtn').onclick = ()=>{
+  if(!selected) return alert('Select a General to promote to Queen');
+  const p = board[selected.r][selected.c];
+  if(!p || p.role!=='general') return alert('Only Generals can be promoted to Queen.');
+  const stacks = p.side==='white'? whiteStacks: blackStacks;
+  if(stacks<=0) return alert('No stacks available.');
+  // show fusion modal to pick second element to fuse with base p.element
+  pendingPromotion = {piece:p, r:selected.r, c:selected.c, type:'queen'};
+  showPromoModal(p.side,'Choose element to fuse into Queen');
+};
+
+// update trays UI
+function updateTrays(){
+  // show tokens count in tray by tokens added as child nodes
+  // (whiteTray/blackTray children represent captured pawns)
+  // update stacks numbers done in render
+}
+
+// reset button
+document.getElementById('resetBtn').onclick = ()=>{ initBoard(); render(); };
+
+// initialize
+initBoard();
+render();
+
+// initial highlight no selected
+
+// small helper to simulate a capture of pawn for demo: capture logic already implemented
+// end of script
+</script>
+</body>
+</html>
